@@ -19,3 +19,4 @@ GEMINI_API_KEY=AIzaSy... (Bu kısmı kendi api key ile doldurun)
 5) Daha sonra bilgisayarınıza python3 kurun.
 6) "requirements.txt" dosyasındaki dosyaları kurun.
 7) Programı çalıştırabilirsiniz. Artık telegramdan yazdığınızda sizinle konuşan bir asistanınız var.
+Not: "portfolio.json" adlı dosyayı temizleyerek, kendi alarmlarınızı ve bakiyenzi koyabileceğiniz bir alan oluşturabilirsiniz.
