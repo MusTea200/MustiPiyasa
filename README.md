@@ -1,7 +1,7 @@
 Bu proje, kendi makinalarınızda çalışan ve telegram aracılığıyla piyasa takibi yapmanıza yarayan bir programdır.
 Programın özellikleri:
 1) Yapay zeka tabanlı olduğundan, yazdığınız yazıları algılayıp buna göre kod çalıştırabiliyor.
-2) Bildirim aracılığı ile alarmlar kurabilirsiniz.
+2) Bildirim aracılığı ile alarmlar kurabilirsiniz. Ve bu alarmları iptal edebilirsiniz.
 3) Belirttiğiniz değer, Dolar/Euro/TL olarak belirtilen sayının altında/üstünde ise sizi gerektiğinde uyarabilir.
 4) Yahoo finans üzerindeki tüm hisseleri okuyabilir. (ALtın/gümüş piyasası, Dolar/Japon yeni piyasası...)
 5) Süre tabanlı bildirimler kurabilirsiniz. (min 1 dakika)
