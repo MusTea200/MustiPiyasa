@@ -183,7 +183,7 @@ async def newsletter_job(context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Newsletter failed for {user_id}: {e}")
 
-async def run_bot():
+def run_bot():
     """
     Starts the bot.
     """
@@ -225,11 +225,8 @@ async def run_bot():
             name='newsletter_evening'
         )
         
-        # For TESTING: Run once immediately (remove in prod or comment out)
-        # application.job_queue.run_once(newsletter_job, when=5, data='evening')
-
     print("Bot is running...")
     application.run_polling()
 
 if __name__ == '__main__':
-    asyncio.run(run_bot())
+    run_bot()
