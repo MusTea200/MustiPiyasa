@@ -8,7 +8,7 @@ PORTFOLIO_FILE = 'portfolio.json'
 
 def load_portfolio():
     if not os.path.exists(PORTFOLIO_FILE):
-        return {"alerts": [], "balances": {}, "history": []}
+        return {"alerts": [], "balances": {}, "history": [], "snapshots": [], "newsletter_subs": []}
     with open(PORTFOLIO_FILE, 'r') as f:
         try:
             data = json.load(f)
@@ -16,9 +16,15 @@ def load_portfolio():
                 data["balances"] = {}
             if "history" not in data:
                 data["history"] = []
+            if "snapshots" not in data:
+                data["snapshots"] = []
+            if "newsletter_subs" not in data:
+                # Default to subscribing all users who have alerts/balances, or empty
+                # Let's keep it empty and opt-in or auto-opt-in logic elsewhere
+                data["newsletter_subs"] = [] 
             return data
         except json.JSONDecodeError:
-            return {"alerts": [], "balances": {}, "history": []}
+            return {"alerts": [], "balances": {}, "history": [], "snapshots": [], "newsletter_subs": []}
 
 def save_portfolio(data):
     with open(PORTFOLIO_FILE, 'w') as f:
@@ -180,6 +186,258 @@ def get_portfolio_status(user_id):
     
     return report
 
+    return report
+
+    return report
+
+def subscribe_newsletter(user_id):
+    data = load_portfolio()
+    subs = data.get("newsletter_subs", [])
+    if user_id not in subs:
+        subs.append(user_id)
+        data["newsletter_subs"] = subs
+        save_portfolio(data)
+    return "Günlük bülten aboneliğiniz başlatıldı. (Her gün 08:00 ve 18:00)"
+
+def unsubscribe_newsletter(user_id):
+    data = load_portfolio()
+    subs = data.get("newsletter_subs", [])
+    if user_id in subs:
+        subs.remove(user_id)
+        data["newsletter_subs"] = subs
+        save_portfolio(data)
+        return "Günlük bülten iptal edildi."
+    return "Zaten abone değilsiniz."
+
+def get_newsletter_subscribers():
+    data = load_portfolio()
+    return data.get("newsletter_subs", [])
+
+def save_snapshot(label):
+    """
+    Saves a snapshot of current prices for all user-relevant symbols.
+    label: 'morning' or 'evening'
+    """
+    data = load_portfolio()
+    
+    # Collect all relevant symbols from alerts and balances
+    symbols = set()
+    for alert in data.get("alerts", []):
+        if alert.get("type", "price") == "price":
+            symbols.add(alert['symbol'])
+    
+    for user_bals in data.get("balances", {}).values():
+        for sym in user_bals.keys():
+            symbols.add(sym)
+            
+    # Also add watchlist for market summary
+    watchlist = ["THYAO.IS", "GARAN.IS", "BIST100", "USDTRY=X", "GC=F", "BTC-USD", "ETH-USD", "AAPL", "TSLA"]
+    for w in watchlist:
+        symbols.add(w)
+        
+    prices = {}
+    for sym in symbols:
+        # Special case for some symbols normalization handled in get_market_data or here
+        # Assuming get_market_data handles it or returns None
+        mdata = get_market_data(sym)
+        if mdata:
+            prices[sym] = mdata['price']
+            
+    snapshot = {
+        "timestamp": time.time(),
+        "label": label,
+        "prices": prices
+    }
+    
+    # Keep only last few snapshots to save space? Or needed history?
+    # For comparison we usually need just the last one of opposite type or immediate previous.
+    if "snapshots" not in data:
+        data["snapshots"] = []
+    
+    # Append
+    data["snapshots"].append(snapshot)
+    
+    # Trim to last 10 to keep file size small
+    if len(data["snapshots"]) > 10:
+        data["snapshots"] = data["snapshots"][-10:]
+        
+    save_portfolio(data)
+    return snapshot
+
+def get_last_snapshot(current_label):
+    """
+    Returns the most relevant previous snapshot for comparison.
+    If current is 'morning' (08:00) -> compare with yesterday 'evening' or 'morning'? 
+    User said: "sabah 8 deki piyasa fiyatlarına göre karşılaştırması" (vs yesterday evening)
+    If current is 'morning', looks for last 'evening'. 
+    If current is 'evening', looks for today 'morning'.
+    """
+    data = load_portfolio()
+    snaps = data.get("snapshots", [])
+    if not snaps:
+        return None
+        
+    target_label = 'evening' if current_label == 'morning' else 'morning'
+    
+    # Reverse search
+    for snap in reversed(snaps):
+        # Allow comparing to same label if opposite missing? 
+        # Ideally find last opposite.
+        if snap['label'] == target_label:
+            return snap
+            
+    # Fallback to just the very last one
+    return snaps[-1] if snaps else None
+
+def generate_newsletter(user_id, label):
+    """
+    Generates the newsletter text for a user.
+    """
+    data = load_portfolio()
+    
+    # 1. Get Comparisons
+    # First ensure we have a fresh snapshot for NOW (or created just before calling this)
+    # Actually, we should call save_snapshot ONCE globally before generating for users, 
+    # but here we might just use live values vs Last Snapshot.
+    # Let's assume save_snapshot was called by the job handler right before this loop.
+    # So we get the very last snapshot as "Current" and the one before that as "Previous".
+    
+    snaps = data.get("snapshots", [])
+    if not snaps:
+        return None # Should not happen if saved before
+        
+    current_snap = snaps[-1] # This morning/evening
+    prev_snap = get_last_snapshot(label)
+    
+    if not prev_snap:
+         # No previous data to compare
+         prev_snap = current_snap # Diff will be 0
+         
+    curr_prices = current_snap.get('prices', {})
+    prev_prices = prev_snap.get('prices', {})
+    
+    # Get USD Rate for Balances
+    usd_try = curr_prices.get("TRY=X", 1.0)
+    if not usd_try: 
+        m = get_market_data("TRY=X")
+        usd_try = m['price'] if m else 1.0
+
+    report = f"📰 **Piyasa Bülteni ({label.capitalize()})**\n_{datetime.now().strftime('%d/%m/%Y %H:%M')}_\n\n"
+    
+    # A) Alarmı olan hisseler
+    user_str = str(user_id)
+    user_alerts = [a for a in data.get("alerts", []) if str(a.get('user_id')) == user_str and a.get('type')=='price']
+    
+    relevant_symbols = set([a['symbol'] for a in user_alerts])
+    # Add balance symbols
+    user_balances = data.get("balances", {}).get(user_str, {})
+    for s in user_balances.keys():
+        relevant_symbols.add(s)
+        
+    if relevant_symbols:
+        report += "📉 **Takip Listeniz:**\n"
+        for sym in relevant_symbols:
+            cp = curr_prices.get(sym)
+            pp = prev_prices.get(sym)
+            
+            if cp and pp:
+                diff = cp - pp
+                pct = ((cp - pp) / pp) * 100
+                icon = "🟢" if diff >= 0 else "🔴"
+                # Try handling None carefully
+                report += f"{icon} {sym}: {pp:.2f} -> {cp:.2f} (%{pct:+.2f})\n"
+            else:
+                report += f"⚪ {sym}: Veri yok/yetersiz.\n"
+        report += "\n"
+
+    # B) Bakiye
+    if user_balances:
+        total_usd_cur = 0.0
+        total_usd_prev = 0.0
+        
+        for sym, det in user_balances.items():
+            amt = det['amount']
+            unit = det['unit']
+            
+            # Gold multiplier logic duplicate (should refactor but keep simple here)
+            mult = 1.0
+            query_sym = sym
+            if "ALTIN" in sym.upper() or "GOLD" in sym.upper() or sym.upper() == "GC=F":
+                query_sym = "GC=F"
+                if unit.lower() in ["gr", "gram", "g"]:
+                    mult = 1.0 / 31.1035
+            
+            curr_p = curr_prices.get(query_sym, 0)
+            prev_p = prev_prices.get(query_sym, 0) # Use 0 if missing
+            
+            if prev_p == 0: prev_p = curr_p # Avoid div/0 or huge logic jumps
+            
+            # Val calc (simplified, assume USD based assets mainly or handle convert)
+            # Assuming market_service returns USD for most, TRY for stocks maybe?
+            # We need Currency info which is not in simple prices dict map.
+            # Only storing prices is a limitation of simple snapshot. 
+            # We will approximate: If symbol ends with .IS -> TRY. Else USD.
+            
+            is_try = sym.endswith(".IS") or sym == "TRY=X"
+            
+            # Current Val
+            val_c = amt * mult * curr_p
+            if is_try: val_c = val_c / usd_try if usd_try > 0 else 0
+            total_usd_cur += val_c
+            
+            # Prev Val
+            val_p = amt * mult * prev_p
+            if is_try: val_p = val_p / usd_try if usd_try > 0 else 0 # alert: using current USD rate for prev value? 
+            # Ideally use prev USD rate.
+            prev_usd_rate = prev_prices.get("TRY=X", 1.0)
+            if is_try: val_p = val_p / prev_usd_rate if prev_usd_rate > 0 else 0
+            
+            total_usd_prev += val_p
+            
+        diff_bal = total_usd_cur - total_usd_prev
+        pct_bal = 0.0
+        if total_usd_prev > 0:
+            pct_bal = (diff_bal / total_usd_prev) * 100
+            
+        total_try_cur = total_usd_cur * usd_try
+        
+        report += "💰 **Varlık Durumu:**\n"
+        report += f"💵 Toplam: {total_usd_cur:.2f} $ (~{total_try_cur:.2f} ₺)\n"
+        report += f"📊 Değişim: {diff_bal:+.2f} $ (%{pct_bal:+.2f})\n\n"
+
+    # C) Top Movers (Global/BIST List)
+    # We scan our pre-defined 'watchlist' from save_snapshot
+    report += "🌍 **Piyasa Özeti (Günlük):**\n"
+    watchlist = ["BIST100", "THYAO.IS", "GARAN.IS", "BTC-USD", "ETH-USD", "AAPL", "GC=F"]
+    
+    movers = []
+    for w in watchlist:
+        cp = curr_prices.get(w)
+        pp = prev_prices.get(w)
+        if cp and pp:
+            pct = ((cp - pp) / pp) * 100
+            movers.append((w, pct, cp))
+    
+    # Sort by abs change pct (Volatility) or just Gainers? "En çok değer kazanan ve kaybeden"
+    # Let's sort by pct desc
+    movers.sort(key=lambda x: x[1], reverse=True)
+    
+    # Take top 2 and bottom 2
+    if len(movers) > 4:
+        top = movers[:2]
+        bottom = movers[-2:]
+        display_list = top + bottom
+        # Remove duplicates if any overlap
+        display_list = list(dict.fromkeys(display_list)) 
+    else:
+        display_list = movers
+        
+    for item in display_list:
+        sym, pct, cp = item
+        icon = "🟢" if pct >= 0 else "🔴"
+        report += f"{icon} {sym}: {cp:.2f} (%{pct:+.2f})\n"
+        
+    report += "\n⚠️ _Bülteni iptal etmek için: /iptal_bulten_"
     return report
 
 def get_active_alerts(user_id):

@@ -1,11 +1,16 @@
 import os
 import logging
 import asyncio
+from datetime import time as dt_time
+import pytz
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from ai_agent import MarketAIAgent
-from notification_service import check_alerts, add_alert
+from notification_service import (
+    check_alerts, add_alert, save_snapshot, generate_newsletter, 
+    subscribe_newsletter, unsubscribe_newsletter, get_newsletter_subscribers
+)
 
 # Load environment variables
 load_dotenv()
@@ -37,10 +42,17 @@ def get_agent(user_id):
     return agents[user_id]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    subscribe_newsletter(user_id) # Auto subscribe
+    
     await update.message.reply_text(
-        "Merhaba! Ben Piyasa Takip Asistanıyım. 📈\n"
-        "Bana piyasalarla ilgili sorular sorabilirsin (örneğin 'THYAO ne kadar?').\n"
-        "Ayrıca '/alert THYAO 300 above' komutu ile alarm kurabilirsin."
+        "Merhaba! Ben Gemini destekli Piyasa Takip Botuyum. 🤖\n\n"
+        "Şunları yapabilirim:\n"
+        "✅ **Fiyat Alarmı:** 'THYAO 300 olunca haber ver'\n"
+        "✅ **Zamanlayıcı:** '10 dakika sonra fırını kapat'\n"
+        "✅ **Bakiye Takibi:** '500 gram altınım var', 'Durumum ne?'\n"
+        "✅ **Haber Bülteni:** Her gün 08:00 ve 18:00'de rapor (Otomatik aktif)\n\n"
+        "Konuşmaya başlayabiliriz! (İptal için: /iptal_bulten)"
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -138,31 +150,86 @@ async def check_alerts_job(context: ContextTypes.DEFAULT_TYPE):
                 # 0.75 * 2 = 1.5 (0.75 + 0.75)
                 # 0.75 * 3 = 2.25 (0.75 + 0.75 + 0.75)
                 # So we just sleep 0.75 each time!
-                
                 if i == 0:
                      # Since user said "ilk bildirim 750ms * 1 = 750ms sonra", we wait 0.75 even for first.
                      await asyncio.sleep(0.75)
+                await context.bot.send_message(chat_id=user_id, text=message)
         
         except Exception as e:
             logging.error(f"Failed to send alert to {user_id}: {e}")
 
-if __name__ == '__main__':
-    if not TOKEN:
-        print("Error: TELEGRAM_BOT_TOKEN is not set in .env")
-        exit(1)
-        
-    application = ApplicationBuilder().token(TOKEN).build()
+async def iptal_bulten_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    msg = unsubscribe_newsletter(user_id)
+    await update.message.reply_text(msg)
+
+async def newsletter_job(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Runs daily to send newsletters.
+    """
+    # Context data should carry the label ('morning' or 'evening')
+    label = context.job.data
     
+    # 1. Save global snapshot first
+    save_snapshot(label)
+    
+    # 2. Send to subscribers
+    subs = get_newsletter_subscribers()
+    for user_id in subs:
+        try:
+            report = generate_newsletter(user_id, label)
+            if report:
+                await context.bot.send_message(chat_id=user_id, text=report)
+        except Exception as e:
+            logging.error(f"Newsletter failed for {user_id}: {e}")
+
+async def run_bot():
+    """
+    Starts the bot.
+    """
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        print("Error: TELEGRAM_BOT_TOKEN not found.")
+        return
+
+    application = ApplicationBuilder().token(token).build()
+
     # Handlers
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('help', help_command))
-    application.add_handler(CommandHandler('alert', set_alert_command))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("alert", set_alert_command))
+    application.add_handler(CommandHandler("iptal_bulten", iptal_bulten_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Job Queue for periodic checks (every 60 seconds)
+    # Jobs
     if application.job_queue:
-        # Run immediately (after 1s) to catch persistent alerts
+        # Start startup check
         application.job_queue.run_repeating(check_alerts_job, interval=5, first=1)
-    
+        
+        # Newsletter Jobs (Timezone: Europe/Istanbul)
+        tz = pytz.timezone("Europe/Istanbul")
+        
+        # Morning 08:00
+        application.job_queue.run_daily(
+            newsletter_job, 
+            time=dt_time(hour=8, minute=0, tzinfo=tz),
+            data='morning',
+            name='newsletter_morning'
+        )
+        
+        # Evening 18:00
+        application.job_queue.run_daily(
+            newsletter_job, 
+            time=dt_time(hour=18, minute=0, tzinfo=tz),
+            data='evening',
+            name='newsletter_evening'
+        )
+        
+        # For TESTING: Run once immediately (remove in prod or comment out)
+        # application.job_queue.run_once(newsletter_job, when=5, data='evening')
+
     print("Bot is running...")
     application.run_polling()
+
+if __name__ == '__main__':
+    asyncio.run(run_bot())
