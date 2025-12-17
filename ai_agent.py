@@ -1,4 +1,9 @@
 import os
+import sys
+import warnings
+# Suppress specific legacy warning from google.generativeai
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 import google.generativeai as genai
 from dotenv import load_dotenv
 from market_service import get_market_data
@@ -142,6 +147,7 @@ class MarketAIAgent:
 
 if __name__ == "__main__":
     # Test
+    sys.stdout.reconfigure(encoding='utf-8')
     # Note: This will fail if GEMINI_API_KEY is not set in .env
     try:
         # Mock user ID for test
