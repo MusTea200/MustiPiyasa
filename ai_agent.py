@@ -2,7 +2,7 @@ import os
 import google.generativeai as genai
 from dotenv import load_dotenv
 from market_service import get_market_data
-from notification_service import add_alert, add_time_alert, update_balance, get_portfolio_status, get_active_alerts
+from notification_service import add_alert, add_time_alert, update_balance, get_portfolio_status, get_active_alerts, delete_alert
 
 # Load environment variables
 load_dotenv()
@@ -89,8 +89,23 @@ class MarketAIAgent:
                 return "Hata: Kullanıcı ID yok."
             return get_active_alerts(self.user_id)
 
+        def cancel_alert_tool(index: int):
+            """
+            Cancels an alert by its list number.
+            Args:
+                index (int): The number of the alert to cancel (e.g. 1, 2).
+            """
+            if not self.user_id:
+                return "Hata: Kullanıcı ID yok."
+            # Ensure int
+            try:
+                idx = int(index)
+            except:
+                return "Lütfen geçerli bir sayı belirtin."
+            return delete_alert(self.user_id, idx)
+
         # Tools available to the model
-        self.tools = [get_market_data, create_alert, create_timer, update_balance_tool, get_portfolio_tool, list_alerts_tool]
+        self.tools = [get_market_data, create_alert, create_timer, update_balance_tool, get_portfolio_tool, list_alerts_tool, cancel_alert_tool]
         
         # Initialize model
         self.model = genai.GenerativeModel(
@@ -101,6 +116,7 @@ class MarketAIAgent:
                 "- Bakiye güncellemek için: update_balance_tool (Örn: '500 gr altınım var')\n"
                 "- Portföy durumu için: get_portfolio_tool (Örn: 'Durumum nedir?')\n"
                 "- Aktif alarmları görmek için: list_alerts_tool (Örn: 'Alarmlarımı listele')\n"
+                "- Alarm iptal etmek için: cancel_alert_tool (Örn: '1. alarmı sil')\n"
                 "- Fiyat alarmı için: create_alert\n"
                 "- Süre alarmı için: create_timer\n"
                 "- Fiyat sorgusu için: get_market_data\n"
@@ -152,6 +168,11 @@ if __name__ == "__main__":
 
         print("\nUser: Alarmlarımı listele.")
         response = agent.send_message("Alarmlarımı listele.")
+        print(f"Gemini: {response}")
+
+        print("\nUser: 1. alarmı ve 2. alarmı sil.") 
+        # Note: Gemini might try to call tool twice or answer textually.
+        response = agent.send_message("1. alarmı sil.")
         print(f"Gemini: {response}")
 
     except Exception as e:

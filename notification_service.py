@@ -440,6 +440,46 @@ def generate_newsletter(user_id, label):
     report += "\n⚠️ _Bülteni iptal etmek için: /iptal_bulten_"
     return report
 
+def delete_alert(user_id, alert_index):
+    """
+    Deletes an alert based on its 1-based index in the user's list.
+    """
+    data = load_portfolio()
+    alerts = data.get("alerts", [])
+    user_str = str(user_id)
+    
+    # 1. Find user's alerts to map index
+    user_indices = [] # Stores actual indices in the main 'alerts' list
+    for i, a in enumerate(alerts):
+        if str(a.get('user_id')) == user_str:
+            user_indices.append(i)
+            
+    if not user_indices:
+        return "Silinecek aktif alarmınız yok."
+        
+    if alert_index < 1 or alert_index > len(user_indices):
+        return f"Geçersiz numara. 1 ile {len(user_indices)} arasında bir sayı belirtin."
+        
+    # 2. Identify target index in main list
+    target_main_index = user_indices[alert_index - 1]
+    
+    # 3. Get details for confirmation message before deleting
+    removed_alert = alerts[target_main_index]
+    symbol = removed_alert.get('symbol', 'Zamanlayıcı')
+    target = removed_alert.get('target_price', '')
+    note = removed_alert.get('note', '')
+    
+    desc = f"{symbol} > {target}" if removed_alert.get('type') == 'price' else f"Zamanlayıcı ({note})"
+    
+    # 4. Remove
+    # We remove by index. Since we loaded freshly, this is safe unless concurrency high (unlikely here)
+    del alerts[target_main_index]
+    
+    data["alerts"] = alerts
+    save_portfolio(data)
+    
+    return f"✅ İptal edildi: {desc}"
+
 def get_active_alerts(user_id):
     """
     Returns a formatted list of active alerts for the user.
