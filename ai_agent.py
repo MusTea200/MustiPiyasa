@@ -100,6 +100,7 @@ class MarketAIAgent:
             Args:
                 index (int): The number of the alert to cancel (e.g. 1, 2).
             """
+            print(f"DEBUG: cancel_alert_tool called with index: {index}")
             if not self.user_id:
                 return "Hata: Kullanıcı ID yok."
             # Ensure int

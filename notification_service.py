@@ -444,6 +444,7 @@ def delete_alert(user_id, alert_index):
     """
     Deletes an alert based on its 1-based index in the user's list.
     """
+    print(f"DEBUG: delete_alert called for user {user_id}, index {alert_index}")
     data = load_portfolio()
     alerts = data.get("alerts", [])
     user_str = str(user_id)
@@ -454,6 +455,8 @@ def delete_alert(user_id, alert_index):
         if str(a.get('user_id')) == user_str:
             user_indices.append(i)
             
+    print(f"DEBUG: Found {len(user_indices)} alerts for user. Indices: {user_indices}")
+
     if not user_indices:
         return "Silinecek aktif alarmınız yok."
         
@@ -462,6 +465,7 @@ def delete_alert(user_id, alert_index):
         
     # 2. Identify target index in main list
     target_main_index = user_indices[alert_index - 1]
+    print(f"DEBUG: Target main index to delete: {target_main_index}")
     
     # 3. Get details for confirmation message before deleting
     removed_alert = alerts[target_main_index]
@@ -477,6 +481,7 @@ def delete_alert(user_id, alert_index):
     
     data["alerts"] = alerts
     save_portfolio(data)
+    print("DEBUG: Alert deleted and saved.")
     
     return f"✅ İptal edildi: {desc}"
 
